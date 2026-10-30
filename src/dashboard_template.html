@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Online Retail Analytics</title>
+<meta name="description" content="Cohort retention, RFM segmentation and revenue analysis of 1M+ transactions from a UK online retailer (2009-2011). SQL (DuckDB) + Python.">
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-cartesian-dist-min@2.35.2/plotly-cartesian.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f3ef;
+  --surface: #fcfcfb;
+  --border: #e4e3df;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #7a7974;
+  --grid: #e9e8e4;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --accent-bg: #e8f1fc;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111110;
+    --surface: #1a1a19;
+    --border: #2e2e2c;
+    --text: #f0efec;
+    --text-2: #c3c2b7;
+    --muted: #93928b;
+    --grid: #2a2a28;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --accent-bg: #172435;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110;
+  --surface: #1a1a19;
+  --border: #2e2e2c;
+  --text: #f0efec;
+  --text-2: #c3c2b7;
+  --muted: #93928b;
+  --grid: #2a2a28;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --accent-bg: #172435;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 64px; }
+header h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+header p { margin: 0; color: var(--text-2); max-width: 760px; }
+header .meta { margin-top: 10px; font-size: 13px; color: var(--muted); }
+header a, footer a { color: var(--series-1); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 28px 0; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.kpi .label { font-size: 12px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; }
+.kpi .value { font-size: 26px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.kpi .note { font-size: 12px; color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 18px 10px; min-width: 0; }
+.card.wide { grid-column: 1 / -1; }
+.card h2 { font-size: 16px; margin: 0 0 2px; }
+.card .sub { font-size: 13px; color: var(--text-2); margin: 0 0 8px; }
+.insight { background: var(--accent-bg); border-radius: 6px; padding: 8px 10px; font-size: 13px; margin: 6px 0 12px; }
+.chart { width: 100%; height: 340px; }
+.chart.tall { height: 560px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+th { color: var(--text-2); font-weight: 600; }
+td.num, th.num { text-align: right; }
+.table-wrap { overflow-x: auto; margin-bottom: 8px; }
+footer { margin-top: 32px; font-size: 13px; color: var(--muted); }
+@media (max-width: 760px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .chart.tall { height: 640px; }
+  header h1 { font-size: 23px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Online Retail: Customers, Retention &amp; Revenue</h1>
+    <p>1,067,371 transaction lines from a UK online gift retailer, Dec 2009 – Dec 2011, cleaned and analysed with SQL (DuckDB) and Python. Wholesale-heavy customer base, so order values are high.</p>
+    <p class="meta">Built by Nabeel Khan · <a href="https://github.com/nabeel1199/ecommerce-cohort-rfm">Code &amp; SQL on GitHub</a> · Data: UCI Online Retail II (CC BY 4.0)</p>
+  </header>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid">
+    <div class="card wide">
+      <h2>Monthly revenue</h2>
+      <p class="sub">Dec 2009 – Nov 2011 (Dec 2011 is a partial month and is excluded)</p>
+      <div class="insight" id="ins-monthly"></div>
+      <div class="chart" id="c-monthly"></div>
+    </div>
+
+    <div class="card wide">
+      <h2>Cohort retention</h2>
+      <p class="sub">% of customers from each first-purchase month who bought again N months later</p>
+      <div class="insight">Only about 1 in 5 customers comes back in any given month. Retention rises again at month 12 for the autumn 2010 cohorts, because Christmas buyers come back for the next Christmas. The Dec 2009 cohort looks unusually loyal because it includes customers who were already buying before the data starts.</div>
+      <div class="chart tall" id="c-cohort"></div>
+    </div>
+
+    <div class="card">
+      <h2>RFM segments</h2>
+      <p class="sub">Share of customers vs share of revenue</p>
+      <div class="insight" id="ins-rfm"></div>
+      <div class="chart" id="c-rfm"></div>
+    </div>
+
+    <div class="card">
+      <h2>Revenue concentration</h2>
+      <p class="sub">Cumulative % of revenue by customers, ranked by revenue</p>
+      <div class="insight" id="ins-pareto"></div>
+      <div class="chart" id="c-pareto"></div>
+    </div>
+
+    <div class="card">
+      <h2>When orders are placed</h2>
+      <p class="sub">Number of orders by weekday and hour</p>
+      <div class="insight">Orders peak around midday on weekdays. There are almost no Saturday orders (30 in two years), so the business most likely does not process orders on Saturdays.</div>
+      <div class="chart" id="c-timing"></div>
+    </div>
+
+    <div class="card">
+      <h2>Top markets outside the UK</h2>
+      <p class="sub">% of total revenue</p>
+      <div class="insight" id="ins-country"></div>
+      <div class="chart" id="c-country"></div>
+    </div>
+
+    <div class="card wide">
+      <h2>Top 15 products by revenue</h2>
+      <p class="sub">Return rate = units cancelled ÷ units sold (shown only for products with 500+ units sold)</p>
+      <div class="table-wrap"><table id="t-products"></table></div>
+    </div>
+
+    <div class="card wide">
+      <h2>Data quality: what was wrong with the raw data</h2>
+      <p class="sub">Measured before cleaning. Every rule is in <code>sql/01_data_quality.sql</code> and <code>sql/02_clean.sql</code></p>
+      <div class="table-wrap"><table id="t-quality"></table></div>
+    </div>
+  </section>
+
+  <footer>
+    Dataset: Chen, D. (2012). Online Retail II [Dataset]. UCI Machine Learning Repository, licensed under CC BY 4.0. Analysis and dashboard by Nabeel Khan.
+  </footer>
+</main>
+
+<script>
+const DATA = __DATA__;
+
+const fmt = {
+  gbp: v => "£" + (v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "K" : v.toFixed(0)),
+  int: v => Math.round(v).toLocaleString("en-GB"),
+  pct: v => v.toFixed(1) + "%",
+};
+
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function baseLayout(extra) {
+  const ink = css("--text-2"), grid = css("--grid");
+  return Object.assign({
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif", size: 12, color: ink },
+    margin: { l: 56, r: 12, t: 8, b: 40 },
+    hoverlabel: { bgcolor: css("--surface"), bordercolor: css("--border"), font: { color: css("--text") } },
+    xaxis: { gridcolor: grid, linecolor: grid, zeroline: false, fixedrange: true },
+    yaxis: { gridcolor: grid, linecolor: grid, zeroline: false, fixedrange: true },
+    showlegend: false,
+  }, extra);
+}
+const CONFIG = { displayModeBar: false, responsive: true };
+
+function kpis() {
+  const k = DATA.kpis;
+  const tiles = [
+    ["Revenue", fmt.gbp(k.revenue), "1 Dec 2009 – 9 Dec 2011"],
+    ["Orders", fmt.int(k.orders), "Avg order " + fmt.gbp(k.aov)],
+    ["Customers", fmt.int(k.customers), "With a customer ID"],
+    ["Repeat customers", fmt.pct(k.repeat_rate), "Placed 2+ orders"],
+    ["Month-1 retention", fmt.pct(k.m1_retention), "Avg across cohorts"],
+    ["Top 20% of customers", fmt.pct(k.top20_share), "Share of revenue"],
+  ];
+  document.getElementById("kpis").innerHTML = tiles.map(([l, v, n]) =>
+    `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div><div class="note">${n}</div></div>`).join("");
+}
+
+function monthly() {
+  const m = DATA.monthly;
+  const peak = m.reduce((a, b) => (b.revenue > a.revenue ? b : a));
+  const low = m.reduce((a, b) => (b.revenue < a.revenue ? b : a));
+  const label = d => new Date(d).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+  document.getElementById("ins-monthly").textContent =
+    `Strong Q4 seasonality: revenue peaks in November (${label(peak.order_month)}: ${fmt.gbp(peak.revenue)}) and is lowest in early spring (${label(low.order_month)}: ${fmt.gbp(low.revenue)}), almost 3x lower.`;
+  Plotly.react("c-monthly", [{
+    x: m.map(r => r.order_month), y: m.map(r => r.revenue),
+    customdata: m.map(r => [r.orders, r.avg_order_value, r.revenue_mom_pct, r.revenue_yoy_pct]),
+    type: "scatter", mode: "lines+markers",
+    line: { color: css("--series-1"), width: 2 }, marker: { size: 7, color: css("--series-1") },
+    hovertemplate: "<b>%{x|%b %Y}</b><br>Revenue: £%{y:,.0f}<br>Orders: %{customdata[0]:,}<br>Avg order: £%{customdata[1]:,.0f}<br>MoM: %{customdata[2]:+.1f}%<extra></extra>",
+  }], baseLayout({
+    yaxis: { gridcolor: css("--grid"), tickprefix: "£", tickformat: "~s", rangemode: "tozero", fixedrange: true },
+    xaxis: { gridcolor: "rgba(0,0,0,0)", linecolor: css("--grid"), tickformat: "%b %y", fixedrange: true },
+    hovermode: "x",
+  }), CONFIG);
+}
+
+function cohort() {
+  const c = DATA.cohort;
+  const dark = css("--surface") !== "#fcfcfb";
+  const scale = dark
+    ? [[0, "#1a1a19"], [0.25, "#104281"], [0.5, "#256abf"], [0.75, "#5598e7"], [1, "#b7d3f6"]]
+    : [[0, "#f4f8fd"], [0.25, "#b7d3f6"], [0.5, "#6da7ec"], [0.75, "#2a78d6"], [1, "#0d366b"]];
+  const text = c.z.map(row => row.map(v => (v === null ? "" : Math.round(v))));
+  Plotly.react("c-cohort", [{
+    type: "heatmap", z: c.z, x: c.offsets, y: c.months, text, texttemplate: "%{text}",
+    textfont: { size: 10 }, zmin: 0, zmax: 40, colorscale: scale, xgap: 2, ygap: 2,
+    customdata: c.z.map((row, i) => row.map(() => c.sizes[i])),
+    hovertemplate: "<b>%{y} cohort</b> (%{customdata:,} customers)<br>Month %{x}: %{z:.1f}% bought again<extra></extra>",
+    colorbar: { ticksuffix: "%", thickness: 10, outlinewidth: 0, tickfont: { color: css("--text-2") } },
+  }], baseLayout({
+    margin: { l: 72, r: 8, t: 8, b: 44 },
+    xaxis: { title: { text: "Months since first purchase" }, dtick: 1, fixedrange: true, showgrid: false },
+    yaxis: { autorange: "reversed", fixedrange: true, showgrid: false },
+  }), CONFIG);
+}
+
+function rfm() {
+  const r = [...DATA.rfm].sort((a, b) => a.pct_revenue - b.pct_revenue);
+  const champ = DATA.rfm.find(s => s.segment === "Champions");
+  const risk = DATA.rfm.find(s => s.segment === "At Risk");
+  document.getElementById("ins-rfm").textContent =
+    `Champions are ${champ.pct_customers}% of customers but ${champ.pct_revenue}% of revenue. "At Risk" (${fmt.int(risk.customers)} customers who used to buy often but stopped, worth ${fmt.gbp(risk.revenue)}) is the obvious win-back target.`;
+  const hover = "<b>%{y}</b><br>%{fullData.name}: %{x:.1f}%<br>Customers: %{customdata[0]:,}<br>Avg orders: %{customdata[1]}<br>Avg days since last order: %{customdata[2]}<extra></extra>";
+  const cd = r.map(s => [s.customers, s.avg_orders, s.avg_recency_days]);
+  Plotly.react("c-rfm", [
+    { type: "bar", orientation: "h", name: "% of customers", y: r.map(s => s.segment), x: r.map(s => s.pct_customers),
+      marker: { color: css("--series-1") }, customdata: cd, hovertemplate: hover },
+    { type: "bar", orientation: "h", name: "% of revenue", y: r.map(s => s.segment), x: r.map(s => s.pct_revenue),
+      marker: { color: css("--series-2") }, customdata: cd, hovertemplate: hover },
+  ], baseLayout({
+    barmode: "group", bargap: 0.3, bargroupgap: 0.08,
+    margin: { l: 150, r: 12, t: 28, b: 32 },
+    showlegend: true, legend: { orientation: "h", x: 0, y: 1.1, font: { color: css("--text-2") } },
+    xaxis: { gridcolor: css("--grid"), ticksuffix: "%", fixedrange: true, zeroline: false },
+    yaxis: { fixedrange: true, showgrid: false },
+  }), CONFIG);
+}
+
+function pareto() {
+  const p = DATA.pareto;
+  document.getElementById("ins-pareto").textContent =
+    `The top 20% of customers bring in ${fmt.pct(DATA.kpis.top20_share)} of revenue, so losing a few big accounts would hurt far more than losing many small ones.`;
+  Plotly.react("c-pareto", [{
+    type: "scatter", mode: "lines", x: p.map(r => r.pct_customers), y: p.map(r => r.cumulative_pct_revenue),
+    line: { color: css("--series-1"), width: 2 },
+    hovertemplate: "Top %{x:.1f}% of customers<br>= %{y:.1f}% of revenue<extra></extra>",
+  }], baseLayout({
+    hovermode: "x",
+    xaxis: { gridcolor: css("--grid"), ticksuffix: "%", range: [0, 100], fixedrange: true, title: { text: "Customers (ranked)" } },
+    yaxis: { gridcolor: css("--grid"), ticksuffix: "%", range: [0, 101], fixedrange: true },
+    margin: { l: 48, r: 12, t: 8, b: 44 },
+  }), CONFIG);
+}
+
+function timing() {
+  const t = DATA.timing;
+  const dark = css("--surface") !== "#fcfcfb";
+  const scale = dark
+    ? [[0, "#1a1a19"], [0.5, "#256abf"], [1, "#b7d3f6"]]
+    : [[0, "#f4f8fd"], [0.5, "#6da7ec"], [1, "#0d366b"]];
+  Plotly.react("c-timing", [{
+    type: "heatmap", z: t.z, x: t.hours.map(h => h + ":00"), y: t.weekdays.map(d => d.slice(0, 3)),
+    colorscale: scale, xgap: 2, ygap: 2, showscale: false,
+    hovertemplate: "<b>%{y} %{x}</b><br>%{z:,} orders<extra></extra>",
+  }], baseLayout({
+    margin: { l: 44, r: 8, t: 8, b: 40 },
+    xaxis: { showgrid: false, fixedrange: true, tickangle: 0, dtick: 2 },
+    yaxis: { showgrid: false, autorange: "reversed", fixedrange: true },
+  }), CONFIG);
+}
+
+function countries() {
+  const c = [...DATA.countries].reverse();
+  const eire = DATA.countries.find(r => r.country === "EIRE");
+  document.getElementById("ins-country").textContent =
+    `The UK is ${DATA.uk_share}% of revenue. Ireland (EIRE) is the next biggest market, but it is only ${eire.customers} customers, so it is a key-account risk rather than a real market.`;
+  Plotly.react("c-country", [{
+    type: "bar", orientation: "h", y: c.map(r => r.country), x: c.map(r => r.pct_revenue),
+    marker: { color: css("--series-1") }, customdata: c.map(r => [r.revenue, r.customers, r.orders]),
+    hovertemplate: "<b>%{y}</b><br>%{x:.2f}% of revenue (£%{customdata[0]:,.0f})<br>Customers: %{customdata[1]:,}<br>Orders: %{customdata[2]:,}<extra></extra>",
+  }], baseLayout({
+    bargap: 0.35,
+    margin: { l: 100, r: 12, t: 8, b: 32 },
+    xaxis: { gridcolor: css("--grid"), ticksuffix: "%", fixedrange: true, zeroline: false },
+    yaxis: { showgrid: false, fixedrange: true },
+  }), CONFIG);
+}
+
+function tables() {
+  const title = s => s.toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase());
+  document.getElementById("t-products").innerHTML =
+    "<tr><th>Product</th><th class='num'>Revenue</th><th class='num'>Units sold</th><th class='num'>Orders</th><th class='num'>Return rate</th></tr>" +
+    DATA.products.map(p => `<tr><td>${title(p.description)}</td><td class="num">£${fmt.int(p.revenue)}</td><td class="num">${fmt.int(p.units_sold)}</td><td class="num">${fmt.int(p.orders)}</td><td class="num">${p.cancel_rate_pct === null ? "–" : fmt.pct(p.cancel_rate_pct)}</td></tr>`).join("");
+  document.getElementById("t-quality").innerHTML =
+    "<tr><th>Check</th><th class='num'>Rows affected</th><th class='num'>% of rows</th></tr>" +
+    DATA.quality.map(q => `<tr><td>${q.check_name}</td><td class="num">${fmt.int(q.rows_affected)}</td><td class="num">${q.pct_of_rows.toFixed(2)}%</td></tr>`).join("");
+}
+
+function drawCharts() { monthly(); cohort(); rfm(); pareto(); timing(); countries(); }
+
+kpis();
+tables();
+drawCharts();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawCharts);
+</script>
+</body>
+</html>

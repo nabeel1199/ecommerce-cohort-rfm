@@ -1,0 +1,9 @@
+check_name,rows_affected,pct_of_rows
+Exact duplicate rows,34335,3.22
+Missing customer ID,243007,22.77
+"Cancellation lines (invoice starts with ""C"")",19494,1.83
+"Bad-debt adjustments (invoice starts with ""A"")",6,0.0
+"Non-product stock codes (postage, fees, manual entries)",6093,0.57
+Zero or negative quantity,22950,2.15
+Zero or negative unit price,6207,0.58
+"Single lines with 10,000+ units (possible entry errors)",15,0.0
